@@ -1,6 +1,5 @@
 var restify = require('restify');
 var builder = require('botbuilder');
-var dinnerMenu = require('./dinnerMenu.js');
 
 /* SERVER SETUP */
 
@@ -30,122 +29,154 @@ server.post('/api/messages', connector.listen());
 
 /* BOT SETUP */
 
-/* This bot enables users to either make a dinner reservation or order dinner. */
-var bot = new builder.UniversalBot(connector, function(session){
-    var msg = "Welcome to the reservation bot. Please say `Dinner Reservation` or `Order Dinner`";
-    session.send(msg);
+/* Create your bot with a function to receive messages from the user.
+ * This default message handler is invoked if the user's utterance doesn't
+ * match any intents handled by other dialogs.*/
+var bot = new builder.UniversalBot(connector, function (session, args) {
+session.send("Hi... I'm the note bot sample. I can create new notes, read saved notes to you and delete notes.");
+
+    /* If the object for storing notes in session.userData doesn't exist yet, initialize it */
+    if (!session.userData.notes) {
+       session.userData.notes = {};
+       console.log("initializing userData.notes in default message handler");
+   }
 });
+
+/* Add global LUIS recognizer to bot */
+var luisAppUrl = process.env.LUIS_APP_URL || 'https://westus.api.cognitive.microsoft.com/luis/v2.0/apps/f5ac9b20-baee-4c87-986d-2468810362c6?subscription-key=04bd5ca0b2fd47e2bc9f4d03e9c53108&verbose=true&timezoneOffset=0&q=';
+bot.recognizer(new builder.LuisRecognizer(luisAppUrl));
 
 /* BOT LOGIC */
 
-/* This dialog helps the user make a dinner reservation. */
-bot.dialog('dinnerReservation', [
-    function (session) {
-        session.send("Welcome to the dinner reservation.");
-        session.beginDialog('askForDateTime');
-    },
-    function (session, results) {
-        session.dialogData.reservationDate = builder.EntityRecognizer.resolveTime([results.response]);
-        session.beginDialog('askForPartySize');
-    },
-    function (session, results) {
-        session.dialogData.partySize = results.response;
-        session.beginDialog('askForReserverName');
-    },
-    function (session, results) {
-        session.dialogData.reservationName = results.response;
+/* CreateNote dialog */
+bot.dialog('CreateNote', [
+    function (session, args, next) {
+        // Resolve and store any Note.Title entity passed from LUIS.
+        var intent = args.intent;
+        var title = builder.EntityRecognizer.findEntity(intent.entities, 'Note.Title');
 
-        /* Process request and display reservation details */
-        session.send(`Reservation confirmed. Reservation details: <br/>Date/Time: ${session.dialogData.reservationDate} <br/>Party size: ${session.dialogData.partySize} <br/>Reservation name: ${session.dialogData.reservationName}`);
-        session.endDialog();
-    }
-])
-.triggerAction({
-    matches: /^dinner reservation$/i,
-    confirmPrompt: "This will cancel your current request. Are you sure?"
-});
-
-/* Dialog to ask for a date and time */
-bot.dialog('askForDateTime', [
-    function (session) {
-        builder.Prompts.time(session, "Please provide a reservation date and time (e.g.: June 6th at 5pm)");
-    },
-    function (session, results) {
-        session.endDialogWithResult(results);
-    }
-]);
-
-/* Dialog to ask for number of people in the party */
-bot.dialog('askForPartySize', [
-    function (session) {
-        builder.Prompts.text(session, "How many people are in your party?");
-    },
-    function (session, results) {
-       session.endDialogWithResult(results);
-    }
-])
-.beginDialogAction('partySizeHelpAction', 'partySizeHelp', { matches: /^help$/i });
-
-/* Context Help dialog for party size */
-bot.dialog('partySizeHelp', function(session, args, next) {
-    var msg = "Party size help: Our restaurant can support party sizes up to 150 members.";
-    session.endDialog(msg);
-})
-
-/* Dialog to ask for the reservation name. */
-bot.dialog('askForReserverName', [
-    function (session) {
-        builder.Prompts.text(session, "Who's name will this reservation be under?");
-    },
-    function (session, results) {
-        session.endDialogWithResult(results);
-    }
-]);
-
-/* This dialog help the user order dinner to be delivered to their hotel room. */
-bot.dialog('orderDinner', [
-    function(session){
-        session.send("Lets order some dinner!");
-        builder.Prompts.choice(session, "Dinner menu:", dinnerMenu);
-    },
-    function (session, results) {
-        if (results.response) {
-            var order = dinnerMenu[results.response.entity];
-            var msg = `You ordered: ${order.Description} for a total of $${order.Price}.`;
-            session.dialogData.order = order;
-            session.send(msg);
-            builder.Prompts.text(session, "What is your room number?");
-        } 
-    },
-    function(session, results){
-        if(results.response){
-            session.dialogData.room = results.response;
-            var msg = `Thank you. Your order will be delivered to room #${session.dialogData.room}`;
-            session.endConversation(msg);
+        var note = session.dialogData.note = {
+          title: title ? title.entity : null,
+        };
+        
+        // Prompt for title
+        if (!note.title) {
+            builder.Prompts.text(session, 'What would you like to call your note?');
+        } else {
+            next();
         }
-    }
-])
-.triggerAction({
-    matches: /^order dinner$/i,
-    confirmPrompt: "This will cancel your order. Are you sure?"
-})
-.endConversationAction(
-    "endOrderDinner", "Ok. Goodbye.",
-    {
-        matches: /^cancel$|^goodbye$/i,
-        confirmPrompt: "This will cancel your order. Are you sure?"
-    }
-);
+    },
+    function (session, results, next) {
+        var note = session.dialogData.note;
+        if (results.response) {
+            note.title = results.response;
+        }
 
-/* The dialog stack is cleared and this dialog is invoked when the user enters 'help'. */
-bot.dialog('help', function (session, args, next) {
-    session.endDialog("This is a bot that can help you make a dinner reservation. <br/>Please say 'next' to continue");
-})
-.triggerAction({
-    matches: /^help$/i,
-    onSelectAction: (session, args, next) => {
-        /* Add the help dialog to the dialog stack
-         * (override the default behavior of replacing the stack) */
-        session.beginDialog(args.action, args);
+        // Prompt for the text of the note
+        if (!note.text) {
+            builder.Prompts.text(session, 'What would you like to say in your note?');
+        } else {
+            next();
+        }
+    },
+    function (session, results) {
+        var note = session.dialogData.note;
+        if (results.response) {
+            note.text = results.response;
+        }
+        
+        // If the object for storing notes in session.userData doesn't exist yet, initialize it
+        if (!session.userData.notes) {
+            session.userData.notes = {};
+            console.log("initializing session.userData.notes in CreateNote dialog");
+        }
+        // Save notes in the notes object
+        session.userData.notes[note.title] = note;
+
+        // Send confirmation to user
+        session.endDialog('Creating note named "%s" with text "%s"',
+            note.title, note.text);
     }
+]).triggerAction({ 
+    matches: 'Note.Create',
+    confirmPrompt: "This will cancel the creation of the note you started. Are you sure?" 
+}).cancelAction('cancelCreateNote', "Note canceled.", {
+    matches: /^(cancel|nevermind)/i,
+    confirmPrompt: "Are you sure?"
 });
+
+/* Delete note dialog */
+bot.dialog('DeleteNote', [
+    function (session, args, next) {
+        if (noteCount(session.userData.notes) > 0) {
+            // Resolve and store any Note.Title entity passed from LUIS.
+            var title;
+            var intent = args.intent;
+            var entity = builder.EntityRecognizer.findEntity(intent.entities, 'Note.Title');
+            if (entity) {
+                // Verify that the title is in our set of notes.
+                title = builder.EntityRecognizer.findBestMatch(session.userData.notes, entity.entity);
+            }
+            
+            // Prompt for note name
+            if (!title) {
+                builder.Prompts.choice(session, 'Which note would you like to delete?', session.userData.notes);
+            } else {
+                next({ response: title });
+            }
+        } else {
+            session.endDialog("No notes to delete.");
+        }
+    },
+    function (session, results) {
+        delete session.userData.notes[results.response.entity];        
+        session.endDialog("Deleted the '%s' note.", results.response.entity);
+    }
+]).triggerAction({
+    matches: 'Note.Delete'
+}).cancelAction('cancelDeleteNote', "Ok - canceled note deletion.", {
+    matches: /^(cancel|nevermind)/i
+});
+
+/* Read note dialog */
+bot.dialog('ReadNote', [
+    function (session, args, next) {
+        if (noteCount(session.userData.notes) > 0) {
+           
+            // Resolve and store any Note.Title entity passed from LUIS.
+            var title;
+            var intent = args.intent;
+            var entity = builder.EntityRecognizer.findEntity(intent.entities, 'Note.Title');
+            if (entity) {
+                // Verify it's in our set of notes.
+                title = builder.EntityRecognizer.findBestMatch(session.userData.notes, entity.entity);
+            }
+            
+            // Prompt for note name
+            if (!title) {
+                builder.Prompts.choice(session, 'Which note would you like to read?', session.userData.notes);
+            } else {
+                next({ response: title });
+            }
+        } else {
+            session.endDialog("No notes to read.");
+        }
+    },
+    function (session, results) {        
+        session.endDialog("Here's the '%s' note: '%s'.", results.response.entity, session.userData.notes[results.response.entity].text);
+    }
+]).triggerAction({
+    matches: 'Note.ReadAloud'
+}).cancelAction('cancelReadNote', "Ok.", {
+    matches: /^(cancel|nevermind)/i
+});
+
+/* Helper function to count the number of notes stored in session.userData.notes */
+function noteCount(notes) {
+    
+    var i = 0;
+    for (var name in notes) {
+        i++;
+    }
+    return i;
+}
