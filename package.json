@@ -2,7 +2,7 @@
   "name": "msbot-node",
   "version": "1.0.0",
   "description": "Node implementaion of MS-Bot framework",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
