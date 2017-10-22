@@ -20,7 +20,10 @@ server.get('/', restify.plugins.serveStatic({
 /* BOT CONNECTOR SETUP */
 
 /* Create chat connector for communicating with the Bot Framework Service */
-var connector = new builder.ChatConnector();
+var connector = new builder.ChatConnector({
+    appId: process.env.MICROSOFT_APP_ID,
+    appPassword: process.env.MICROSOFT_APP_PASSWORD
+});
 
 /* Listen for messages from users */
 server.post('/api/messages', connector.listen());
